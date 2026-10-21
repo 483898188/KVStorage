@@ -58,7 +58,13 @@ void Raft::AppendEntries1(const raftRpcProctoc::AppendEntriesArgs* args, raftRpc
         m_lastSnapshotIncludeIndex +
         1);  // todo 如果想直接弄到最新好像不对，因为是从后慢慢往前匹配的，这里不匹配说明后面的都不匹配
     //  DPrintf("[func-AppendEntries-rf{%v}] 拒绝了节点{%v}，因为log太老，返回值：{%v}\n", rf.me, args.LeaderId, reply)
-    //  return
+    // 这里必须 return：否则会落到下面的 matchLog()，而 matchLog 里有
+    //   myAssert(logIndex >= m_lastSnapshotIncludeIndex && ...)
+    // 此处 prevlogindex < m_lastSnapshotIncludeIndex，断言必然失败。
+    // 而 myAssert 的实现是 std::exit(EXIT_FAILURE)（src/common/util.cpp:8），
+    // 于是整个节点进程直接退出。触发场景是 follower 的快照比 leader 认为的更新，
+    // 属于正常的落后/恢复场景，不是异常输入。
+    return;
   }
   //	本机日志有那么长，冲突(same index,different term),截断日志
   // 注意：这里目前当args.PrevLogIndex == rf.lastSnapshotIncludeIndex与不等的时候要分开考虑，可以看看能不能优化这块
@@ -321,7 +327,7 @@ void Raft::electionTimeOutTicker() {
           HeartBeatTimeout);  //定时时间没有严谨设置，因为HeartBeatTimeout比选举超时一般小一个数量级，因此就设置为HeartBeatTimeout了
     }
     std::chrono::duration<signed long int, std::ratio<1, 1000000000>> suitableSleepTime{};
-    std::chrono::system_clock::time_point wakeTime{};
+    std::chrono::steady_clock::time_point wakeTime{};
     {
       m_mtx.lock();
       wakeTime = now();
@@ -487,7 +493,7 @@ void Raft::leaderHearBeatTicker() {
     static std::atomic<int32_t> atomicCount = 0;
 
     std::chrono::duration<signed long int, std::ratio<1, 1000000000>> suitableSleepTime{};
-    std::chrono::system_clock::time_point wakeTime{};
+    std::chrono::steady_clock::time_point wakeTime{};
     {
       std::lock_guard<std::mutex> lock(m_mtx);
       wakeTime = now();

@@ -83,7 +83,13 @@ void MprpcChannel::CallMethod(const google::protobuf::MethodDescriptor* method,
 
   // 发送rpc请求
   //失败会重试连接再发送，重试连接失败会直接return
-  while (-1 == send(m_clientFd, send_rpc_str.c_str(), send_rpc_str.size(), 0)) {
+  //
+  // 必须带 MSG_NOSIGNAL：向已被对端关闭的 socket 写数据时，内核默认会发 SIGPIPE，
+  // 而 SIGPIPE 的默认动作是【终止进程】。原实现用的是 flags=0，结果是对端一挂，
+  // 本端进程直接被信号打死（实测：kill 掉一个节点后压测进程 exit=141 = 128+SIGPIPE），
+  // 下面这段"重连后重发"的逻辑根本来不及执行。
+  // 带上 MSG_NOSIGNAL 后，send 返回 -1/EPIPE，重连逻辑才真正生效。
+  while (-1 == send(m_clientFd, send_rpc_str.c_str(), send_rpc_str.size(), MSG_NOSIGNAL)) {
     char errtxt[512] = {0};
     sprintf(errtxt, "send error! errno:%d", errno);
     std::cout << "尝试重新连接，对方ip：" << m_ip << " 对方端口" << m_port << std::endl;

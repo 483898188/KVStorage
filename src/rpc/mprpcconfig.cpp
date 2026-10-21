@@ -40,7 +40,17 @@ void MprpcConfig::LoadConfigFile(const char *config_file) {
     int endidx = read_buf.find('\n', idx);
     value = read_buf.substr(idx + 1, endidx - idx - 1);
     Trim(value);
-    m_configMap.insert({key, value});
+    // 用赋值而非 insert：insert 在 key 已存在时【不覆盖】，即"首个写入的值生效"。
+    // 而 RpcProvider::Run 是往配置里【追加】本节点 ip/port 的，一旦文件里出现重复 key
+    // （手工编辑、绕过启动器的写入等），陈旧值会静默胜出 —— 表现为"节点连不上对端"，
+    // 且不会有任何报错。改成后者覆盖，并对重复项显式告警。
+    auto it = m_configMap.find(key);
+    if (it != m_configMap.end()) {
+      std::cout << "[MprpcConfig] 警告：配置项 \"" << key << "\" 重复出现，"
+                << "旧值=\"" << it->second << "\" 被新值=\"" << value << "\" 覆盖（" << config_file << "）"
+                << std::endl;
+    }
+    m_configMap[key] = value;
   }
 
   fclose(pf);

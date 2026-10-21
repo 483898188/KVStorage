@@ -1,16 +1,6 @@
-//
-// Created by swx on 24-1-5.
-//
-
 #ifndef SKIPLIST_H
 #define SKIPLIST_H
-/* ************************************************************************
-> File Name:     skiplist.h
-> Author:        程序员Carl
-> 微信公众号:    代码随想录
-> Created Time:  Sun Dec  2 19:04:26 2018
-> Description:
- ************************************************************************/
+
 
 #include <cmath>
 #include <cstdlib>
@@ -295,8 +285,23 @@ void SkipList<K, V>::load_file(const std::string &dumpStr) {
   std::stringstream iss(dumpStr);
   boost::archive::text_iarchive ia(iss);
   ia >> dumper;
-  for (int i = 0; i < dumper.keyDumpVt_.size(); ++i) {
-    insert_element(dumper.keyDumpVt_[i], dumper.keyDumpVt_[i]);
+
+  // 恢复语义是【替换】而不是【合并】：先清空现有数据。
+  // 原实现直接往现有跳表里插，而 insert_element 碰到已存在的 key 会直接返回、不更新 value，
+  // 于是装上快照后：已存在的 key 保留旧值，只有新 key 会被插入
+  // —— 结果既不是快照前的状态，也不是快照里的状态。
+  if (_header->forward[0] != nullptr) {
+    clear(_header->forward[0]);
+    memset(_header->forward, 0, sizeof(Node<K, V> *) * (_max_level + 1));
+    _skip_list_level = 0;
+    _element_count = 0;
+  }
+
+  for (size_t i = 0; i < dumper.keyDumpVt_.size(); ++i) {
+    // 第二个参数必须是 valDumpVt_。
+    // 原实现两个参数都传了 keyDumpVt_[i]，导致恢复后每个 key 的 value 都变成 key 自身
+    // （例如 Put("name","alice") 恢复后变成 "name" -> "name"），是数据损坏。
+    insert_element(dumper.keyDumpVt_[i], dumper.valDumpVt_[i]);
   }
 }
 

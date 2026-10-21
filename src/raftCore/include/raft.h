@@ -57,9 +57,9 @@ class Raft : public raftRpcProctoc::raftRpc {
 
   // 选举超时
 
-  std::chrono::_V2::system_clock::time_point m_lastResetElectionTime;
+  std::chrono::steady_clock::time_point m_lastResetElectionTime;
   // 心跳超时，用于leader
-  std::chrono::_V2::system_clock::time_point m_lastResetHearBeatTime;
+  std::chrono::steady_clock::time_point m_lastResetHearBeatTime;
 
   // 2D中用于传入快照点
   // 储存了快照中的最后一个日志的Index和Term

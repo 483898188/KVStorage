@@ -12,11 +12,14 @@ void myAssert(bool condition, std::string message) {
   }
 }
 
-std::chrono::_V2::system_clock::time_point now() { return std::chrono::high_resolution_clock::now(); }
+// 见 util.h 的说明：必须用单调时钟，否则系统时间被调整会破坏 Raft 的选举/心跳定时。
+std::chrono::steady_clock::time_point now() { return std::chrono::steady_clock::now(); }
 
 std::chrono::milliseconds getRandomizedElectionTimeout() {
-  std::random_device rd;
-  std::mt19937 rng(rd());
+  // 引擎必须是 static：原实现每次调用都重新构造 random_device + mt19937，
+  // 而 random_device 在 Linux 上要读 /dev/urandom（一次系统调用）。
+  // 这个函数被 electionTimeOutTicker 每一轮循环都调用，属于热路径。
+  static thread_local std::mt19937 rng{std::random_device{}()};
   std::uniform_int_distribution<int> dist(minRandomizedElectionTime, maxRandomizedElectionTime);
 
   return std::chrono::milliseconds(dist(rng));

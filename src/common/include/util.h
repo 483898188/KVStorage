@@ -52,7 +52,11 @@ std::string format(const char* format_str, Args... args) {
     return std::string(buf.data(), buf.data() + size - 1);  // remove '\0'
 }
 
-std::chrono::_V2::system_clock::time_point now();
+// 单调时钟。原实现是 `high_resolution_clock`，而 libstdc++ 下它就等于 system_clock
+// （非单调，已实测：is_steady == 0）。Raft 的选举超时/心跳定时全建立在这个 now() 上，
+// 一次 NTP 校时就会让 m_lastResetElectionTime 显得"很久以前"而触发选举风暴，
+// 或者反过来让定时器永不超时。steady_clock 不受系统时间调整影响。
+std::chrono::steady_clock::time_point now();
 
 std::chrono::milliseconds getRandomizedElectionTimeout();
 void sleepNMilliseconds(int N);
@@ -85,9 +89,12 @@ class LockQueue {
   {
     std::unique_lock<std::mutex> lock(m_mutex);
 
-    // 获取当前时间点，并计算出超时时刻
-    auto now = std::chrono::system_clock::now();
-    auto timeout_time = now + std::chrono::milliseconds(timeout);
+    // 获取当前时间点，并计算出超时时刻。
+    // 用 steady_clock（单调）而非 system_clock：后者会被 NTP 校时/手动改时间影响，
+    // 时钟回拨会让这里的等待提前或延后返回。
+    // （顺带：原代码把局部变量命名为 now，遮蔽了本头文件里的全局 now() 函数。）
+    auto base = std::chrono::steady_clock::now();
+    auto timeout_time = base + std::chrono::milliseconds(timeout);
 
     // 在超时之前，不断检查队列是否为空
     while (m_queue.empty()) {
@@ -130,7 +137,10 @@ class Op {
   std::string Key;
   std::string Value;
   std::string ClientId;  //客户端号码
-  int RequestId;         //客户端号码请求的Request的序列号，为了保证线性一致性
+  // 必须初始化：Op 在项目里被大量栈上默认构造（`Op op;`），原先这个 int 是未初始化的。
+  // 它直接参与去重判断 ifRequestDuplicate()，一旦有提前读取就会拿到随机值，
+  // 造成"误判为重复"（丢写）或"漏判重复"（重复执行）。
+  int RequestId = 0;     //客户端号码请求的Request的序列号，为了保证线性一致性
                          // IfDuplicate bool // Duplicate command can't be applied twice , but only for PUT and APPEND
 
  public:
